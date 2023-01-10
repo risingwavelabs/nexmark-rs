@@ -25,6 +25,11 @@ use crate::utils::{NexmarkRng, CHANNEL_URL_MAP};
 
 type Id = usize;
 
+/// Fraction of people/auctions which may be 'hot' sellers/bidders/auctions are 1 over these values.
+const HOT_SELLER_RATIO: usize = 100;
+const HOT_AUCTION_RATIO: usize = 100;
+const HOT_BIDDER_RATIO: usize = 100;
+
 /// The type of a Nexmark event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -187,7 +192,7 @@ impl Auction {
         let reserve = initial_bid + rng.gen_price();
         let expires = time + Self::next_length(event_number, rng, time, cfg);
         let mut seller = if rng.gen_range(0..cfg.hot_seller_ratio) > 0 {
-            (Person::last_id(id, cfg) / cfg.hot_seller_ratio_2) * cfg.hot_seller_ratio_2
+            (Person::last_id(id, cfg) / HOT_SELLER_RATIO) * HOT_SELLER_RATIO
         } else {
             Person::next_id(id, rng, cfg)
         };
@@ -274,12 +279,12 @@ impl Bid {
     pub(crate) fn new(id: usize, time: u64, nex: &GeneratorConfig) -> Self {
         let rng = &mut SmallRng::seed_from_u64(id as u64);
         let auction = if 0 < rng.gen_range(0..nex.hot_auction_ratio) {
-            (Auction::last_id(id, nex) / nex.hot_auction_ratio_2) * nex.hot_auction_ratio_2
+            (Auction::last_id(id, nex) / HOT_AUCTION_RATIO) * HOT_AUCTION_RATIO
         } else {
             Auction::next_id(id, rng, nex)
         };
         let bidder = if 0 < rng.gen_range(0..nex.hot_bidder_ratio) {
-            (Person::last_id(id, nex) / nex.hot_bidder_ratio_2) * nex.hot_bidder_ratio_2 + 1
+            (Person::last_id(id, nex) / HOT_BIDDER_RATIO) * HOT_BIDDER_RATIO + 1
         } else {
             Person::next_id(id, rng, nex)
         };

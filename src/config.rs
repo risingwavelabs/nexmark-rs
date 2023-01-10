@@ -76,12 +76,6 @@ pub struct NexmarkConfig {
     pub num_categories: usize,
     /// Use to calculate the next auction id.
     pub auction_id_lead: usize,
-    /// Ratio of auctions for 'hot' sellers compared to all other people.
-    pub hot_seller_ratio_2: usize,
-    /// Ratio of bids to 'hot' auctions compared to all other auctions.
-    pub hot_auction_ratio_2: usize,
-    /// Ratio of bids for 'hot' bidders compared to all other people.
-    pub hot_bidder_ratio_2: usize,
     /// Person Proportion.
     pub person_proportion: usize,
     /// Auction Proportion.
@@ -141,9 +135,6 @@ impl Default for NexmarkConfig {
             first_event_number: 0,
             num_categories: 5,
             auction_id_lead: 10,
-            hot_seller_ratio_2: 100,
-            hot_auction_ratio_2: 100,
-            hot_bidder_ratio_2: 100,
             person_proportion: 1,
             auction_proportion: 3,
             bid_proportion: 46,
