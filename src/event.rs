@@ -25,6 +25,11 @@ use crate::utils::{NexmarkRng, CHANNEL_URL_MAP};
 
 type Id = usize;
 
+/// Fraction of people/auctions which may be 'hot' sellers/bidders/auctions are 1 over these values.
+const HOT_SELLER_RATIO: usize = 100;
+const HOT_AUCTION_RATIO: usize = 100;
+const HOT_BIDDER_RATIO: usize = 100;
+
 /// The type of a Nexmark event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -101,7 +106,7 @@ pub struct Person {
 }
 
 impl Person {
-    /// Creates a new `Person` event.
+    /// Generate and return a random person with next available id.
     pub(crate) fn new(id: usize, time: u64, cfg: &GeneratorConfig) -> Self {
         let rng = &mut SmallRng::seed_from_u64(id as u64);
         let id = Self::last_id(id, cfg) + cfg.first_person_id;
@@ -137,15 +142,18 @@ impl Person {
         }
     }
 
-    fn next_id(id: usize, rng: &mut SmallRng, nex: &GeneratorConfig) -> Id {
-        let people = Self::last_id(id, nex) + 1;
+    /// Return a random person id (base 0).
+    fn next_id(event_id: usize, rng: &mut SmallRng, nex: &GeneratorConfig) -> Id {
+        let people = Self::last_id(event_id, nex) + 1;
         let active = people.min(nex.active_people);
         people - active + rng.gen_range(0..active + nex.person_id_lead)
     }
 
-    fn last_id(id: usize, nex: &GeneratorConfig) -> Id {
-        let epoch = id / nex.proportion_denominator;
-        let offset = (id % nex.proportion_denominator).min(nex.person_proportion - 1);
+    /// Return the last valid person id (ignoring FIRST_PERSON_ID). Will be the current person id if
+    /// due to generate a person.
+    fn last_id(event_id: usize, nex: &GeneratorConfig) -> Id {
+        let epoch = event_id / nex.proportion_denominator;
+        let offset = (event_id % nex.proportion_denominator).min(nex.person_proportion - 1);
         epoch * nex.person_proportion + offset
     }
 }
@@ -177,19 +185,28 @@ pub struct Auction {
 }
 
 impl Auction {
-    pub(crate) fn new(event_number: usize, id: usize, time: u64, cfg: &GeneratorConfig) -> Self {
-        let rng = &mut SmallRng::seed_from_u64(id as u64);
-        let id = Self::last_id(id, cfg) + cfg.first_auction_id;
+    /// Generate and return a random auction with next available id.
+    pub(crate) fn new(
+        event_number: usize,
+        event_id: usize,
+        time: u64,
+        cfg: &GeneratorConfig,
+    ) -> Self {
+        let rng = &mut SmallRng::seed_from_u64(event_id as u64);
+        let id = Self::last_id(event_id, cfg) + cfg.first_auction_id;
         let item_name = rng.gen_string(20);
         let description = rng.gen_string(100);
         let initial_bid = rng.gen_price();
 
         let reserve = initial_bid + rng.gen_price();
         let expires = time + Self::next_length(event_number, rng, time, cfg);
+
+        // Here P(auction will be for a hot seller) = 1 - 1/hotSellersRatio.
         let mut seller = if rng.gen_range(0..cfg.hot_seller_ratio) > 0 {
-            (Person::last_id(id, cfg) / cfg.hot_seller_ratio_2) * cfg.hot_seller_ratio_2
+            // Choose the first person in the batch of last HOT_SELLER_RATIO people.
+            (Person::last_id(event_id, cfg) / HOT_SELLER_RATIO) * HOT_SELLER_RATIO
         } else {
-            Person::next_id(id, rng, cfg)
+            Person::next_id(event_id, rng, cfg)
         };
         seller += cfg.first_person_id;
         let category = cfg.first_category_id + rng.gen_range(0..cfg.num_categories);
@@ -211,8 +228,9 @@ impl Auction {
         }
     }
 
-    fn next_id(id: usize, rng: &mut SmallRng, nex: &GeneratorConfig) -> Id {
-        let max_auction = Self::last_id(id, nex);
+    /// Return a random auction id (base 0).
+    fn next_id(event_id: usize, rng: &mut SmallRng, nex: &GeneratorConfig) -> Id {
+        let max_auction = Self::last_id(event_id, nex);
         let min_auction = if max_auction < nex.in_flight_auctions {
             0
         } else {
@@ -221,9 +239,10 @@ impl Auction {
         min_auction + rng.gen_range(0..max_auction - min_auction + 1 + nex.auction_id_lead)
     }
 
-    fn last_id(id: usize, nex: &GeneratorConfig) -> Id {
-        let mut epoch = id / nex.proportion_denominator;
-        let mut offset = id % nex.proportion_denominator;
+    /// Return the last valid auction id (ignoring FIRST_AUCTION_ID). Will be the current auction id if due to generate an auction.
+    fn last_id(event_id: usize, nex: &GeneratorConfig) -> Id {
+        let mut epoch = event_id / nex.proportion_denominator;
+        let mut offset = event_id % nex.proportion_denominator;
         if offset < nex.person_proportion {
             epoch -= 1;
             offset = nex.auction_proportion - 1;
@@ -235,6 +254,7 @@ impl Auction {
         epoch * nex.auction_proportion + offset
     }
 
+    /// Return a random time delay, in milliseconds, for length of auctions.
     fn next_length(
         event_number: usize,
         rng: &mut SmallRng,
@@ -271,17 +291,24 @@ pub struct Bid {
 }
 
 impl Bid {
-    pub(crate) fn new(id: usize, time: u64, nex: &GeneratorConfig) -> Self {
-        let rng = &mut SmallRng::seed_from_u64(id as u64);
+    /// Generate and return a random bid with next available id.
+    pub(crate) fn new(event_id: usize, time: u64, nex: &GeneratorConfig) -> Self {
+        let rng = &mut SmallRng::seed_from_u64(event_id as u64);
+        // Here P(bid will be for a hot auction) = 1 - 1/hotAuctionRatio.
         let auction = if 0 < rng.gen_range(0..nex.hot_auction_ratio) {
-            (Auction::last_id(id, nex) / nex.hot_auction_ratio_2) * nex.hot_auction_ratio_2
+            // Choose the first auction in the batch of last HOT_AUCTION_RATIO auctions.
+            (Auction::last_id(event_id, nex) / HOT_AUCTION_RATIO) * HOT_AUCTION_RATIO
         } else {
-            Auction::next_id(id, rng, nex)
+            Auction::next_id(event_id, rng, nex)
         };
+
+        // Here P(bid will be by a hot bidder) = 1 - 1/hotBiddersRatio
         let bidder = if 0 < rng.gen_range(0..nex.hot_bidder_ratio) {
-            (Person::last_id(id, nex) / nex.hot_bidder_ratio_2) * nex.hot_bidder_ratio_2 + 1
+            // Choose the second person (so hot bidders and hot sellers don't collide) in the batch of
+            // last HOT_BIDDER_RATIO people.
+            (Person::last_id(event_id, nex) / HOT_BIDDER_RATIO) * HOT_BIDDER_RATIO + 1
         } else {
-            Person::next_id(id, rng, nex)
+            Person::next_id(event_id, rng, nex)
         };
 
         let price = rng.gen_price();
