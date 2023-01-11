@@ -142,14 +142,15 @@ impl Person {
         }
     }
 
-    /// Generate and return a random person with next available id.
+    /// Return a random person id (base 0).
     fn next_id(event_id: usize, rng: &mut SmallRng, nex: &GeneratorConfig) -> Id {
         let people = Self::last_id(event_id, nex) + 1;
         let active = people.min(nex.active_people);
         people - active + rng.gen_range(0..active + nex.person_id_lead)
     }
 
-    /// Return a random person id (base 0).
+    /// Return the last valid person id (ignoring FIRST_PERSON_ID). Will be the current person id if
+    /// due to generate a person.
     fn last_id(event_id: usize, nex: &GeneratorConfig) -> Id {
         let epoch = event_id / nex.proportion_denominator;
         let offset = (event_id % nex.proportion_denominator).min(nex.person_proportion - 1);
